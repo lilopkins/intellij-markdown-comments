@@ -1,35 +1,23 @@
 <!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
-    <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>uk.hpkns.markdown-comments</id>
-
-    <!-- Public plugin name should be written in Title Case.
-     Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
     <name>Markdown Comments</name>
-
-    <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
     <vendor url="https://hpkns.uk">Lily Hopkins</vendor>
-
-    <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
-         Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
-        Render code comments as Markdown, similarly to how Javadoc/KDoc is rendered.
+        Render regular code comments as Markdown inline in the editor, similarly to rich KDoc/Javadoc display.
         ]]></description>
 
-    <!-- Product and plugin compatibility requirements.
-         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
-    <depends>org.jetbrains.kotlin</depends>
-    <depends>org.intellij.plugins.markdown</depends>
-
-    <resource-bundle>messages.MyMessageBundle</resource-bundle>
-
-    <!-- Extensions defined by the plugin.
-         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="MyToolWindow" factoryClass="uk.hpkns.MyToolWindowFactory"
-                    icon="AllIcons.Toolwindows.ToolWindowPalette"/>
+        <editorFactoryListener implementation="uk.hpkns.mdcomments.MarkdownCommentsEditorFactoryListener"/>
     </extensions>
-    <extensions defaultExtensionNs="org.jetbrains.kotlin">
-        <supportsKotlinPluginMode supportsK2="true"/>
-    </extensions>
+
+    <actions>
+        <action id="uk.hpkns.mdcomments.ToggleMarkdownCommentsAction"
+                class="uk.hpkns.mdcomments.ToggleMarkdownCommentsAction"
+                text="Render Comments as Markdown"
+                description="Toggle inline markdown rendering for regular code comments">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <add-to-group group-id="ViewMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>
