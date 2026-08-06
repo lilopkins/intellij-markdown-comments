@@ -56,14 +56,14 @@ class MarkdownCommentRenderer(
                 ?: textAttributes.foregroundColor
                 ?: g.color
         val lineHeight = editor.lineHeight
-        var y = targetRegion.y + g.fontMetrics.ascent
+        var y = targetRegion.y + g.fontMetrics.ascent + 4
         val indentPixels = indentInPixels(inlay)
         val barX = targetRegion.x + indentPixels
         val textX = barX + barToTextGap
 
         g.color = commentColor
-        val barY = targetRegion.y + 2
-        val barHeight = (targetRegion.height - 4).coerceAtLeast(1)
+        val barY = targetRegion.y
+        val barHeight = (targetRegion.height - 2).coerceAtLeast(1)
         g.fillRect(barX, barY, barWidth, barHeight)
 
         for ((segments, kind) in lines) {
@@ -97,11 +97,11 @@ class MarkdownCommentRenderer(
         }
 
         var fontStyle = Font.PLAIN
-        var fontSize = base.size2D
+        var fontSize = base.size
 
         if (kind == LineKind.HEADING) {
             fontStyle = fontStyle or Font.BOLD
-            fontSize += 1f
+            fontSize += 2
         }
         if (kind == LineKind.QUOTE) {
             fontStyle = 0 or Font.ITALIC
@@ -118,7 +118,7 @@ class MarkdownCommentRenderer(
             -> {}
         }
 
-        return base.deriveFont(fontStyle, fontSize)
+        return Font(Font.SANS_SERIF, fontStyle, fontSize)
     }
 
     /** Converts stored visual indentation columns into pixels for current editor metrics. */

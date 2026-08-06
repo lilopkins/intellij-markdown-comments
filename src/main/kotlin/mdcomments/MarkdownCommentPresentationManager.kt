@@ -186,17 +186,6 @@ object MarkdownCommentPresentationManager {
         }
     }
 
-    /** Forces all comments in the editor to rendered-preview mode. */
-    fun switchAllToDisplayMode(editor: Editor) {
-        // Resetting to null causes the next refresh to treat all comments as initial-load display.
-        editor.putUserData(displayModeOffsetsKey, null)
-    }
-
-    /** Clears all per-comment mode overrides (used when document offsets change). */
-    fun clearRawModes(editor: Editor) {
-        editor.putUserData(displayModeOffsetsKey, null)
-    }
-
     /** Attempts to resolve the owning project for the editor document. */
     fun findProject(editor: Editor): Project? {
         val file = FileDocumentManager.getInstance().getFile(editor.document) ?: return null
