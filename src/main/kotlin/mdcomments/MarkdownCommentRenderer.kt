@@ -19,7 +19,7 @@ class MarkdownCommentRenderer(
     private val indentColumns: Int,
 ) : EditorCustomElementRenderer {
     private val barWidth = 2
-    private val barToTextGap = 10
+    private val barToTextPadding = 16
     private val lines = MarkdownLineParser.parse(markdown)
 
     /** Calculates inlay width from the widest rendered Markdown line. */
@@ -33,13 +33,13 @@ class MarkdownCommentRenderer(
                     fm.stringWidth(segment.text)
                 }
             } ?: 0
-        return indentInPixels(inlay) + barToTextGap + maxTextWidth + metrics.height / 2
+        return indentInPixels(inlay) + barToTextPadding + maxTextWidth + metrics.height / 2
     }
 
     /** Calculates inlay height based on rendered line count. */
     override fun calcHeightInPixels(inlay: Inlay<*>): Int {
         val lineHeight = inlay.editor.lineHeight
-        return max(lineHeight, lineHeight * lines.size + lineHeight / 4)
+        return max(lineHeight, lineHeight * lines.size + lineHeight / 4) + barToTextPadding
     }
 
     /** Paints simplified Markdown text using comment colors and style hints. */
@@ -56,14 +56,14 @@ class MarkdownCommentRenderer(
                 ?: textAttributes.foregroundColor
                 ?: g.color
         val lineHeight = editor.lineHeight
-        var y = targetRegion.y + g.fontMetrics.ascent + 4
+        var y = targetRegion.y + g.fontMetrics.ascent + (barToTextPadding / 2)
         val indentPixels = indentInPixels(inlay)
         val barX = targetRegion.x + indentPixels
-        val textX = barX + barToTextGap
+        val textX = barX + barToTextPadding
 
         g.color = commentColor
         val barY = targetRegion.y
-        val barHeight = (targetRegion.height - 2).coerceAtLeast(1)
+        val barHeight = (targetRegion.height - (barToTextPadding / 4)).coerceAtLeast(1)
         g.fillRect(barX, barY, barWidth, barHeight)
 
         for ((segments, kind) in lines) {

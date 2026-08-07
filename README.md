@@ -5,6 +5,7 @@ An IntelliJ Platform plugin that renders regular code comments as inline markdow
 ## Features
 
 - Renders line and block comments as markdown-style text directly in the editor.
+- Keeps inline/trailing code comments in raw text mode (display mode applies to standalone comment blocks).
 - Preserves inline markdown formatting for emphasis (`**bold**`, `*italic*`) and inline code (`` `code` ``).
 - Renders fenced code blocks using a monospaced style.
 - Excludes doc comments (`/** ... */`) so native Javadoc/KDoc behavior remains intact.

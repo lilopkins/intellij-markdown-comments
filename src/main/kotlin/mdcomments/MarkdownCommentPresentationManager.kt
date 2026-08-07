@@ -59,8 +59,20 @@ object MarkdownCommentPresentationManager {
 
         val comments = PsiTreeUtil.findChildrenOfType(psiFile, PsiComment::class.java).toList()
         val commentBlocks = buildCommentBlocks(editor, comments)
+        val documentText = editor.document.charsSequence
         editor.foldingModel.runBatchFoldingOperation {
             for ((startOffset, endOffset, markdown, startLine, indentColumns) in commentBlocks) {
+                val displayEligible =
+                    MarkdownDisplayModeLayout.isDisplayEligible(
+                        documentText = documentText,
+                        startOffset = startOffset,
+                        endOffset = endOffset,
+                    )
+                if (!displayEligible) {
+                    displayModeOffsets -= startOffset
+                    continue
+                }
+
                 // On initial load every comment is registered as display-mode.
                 // On subsequent refreshes, only known offsets are display; new offsets → raw.
                 val inDisplayMode = isInitialLoad || displayModeOffsets.contains(startOffset)
@@ -80,14 +92,20 @@ object MarkdownCommentPresentationManager {
 
                 if (inRawMode) continue
 
-                // Fold covers the comment text only (PSI endOffset is exclusive so the trailing
-                // newline is outside the fold, naturally terminating the fold-placeholder line).
-                // The inlay at endOffset with showAbove=false appears below the fold placeholder.
+                val collapseEndOffset =
+                    MarkdownDisplayModeLayout.collapseEndOffset(
+                        documentText = documentText,
+                        startOffset = startOffset,
+                        endOffset = endOffset,
+                    )
+
+                // Collapse may include trailing spaces/newline for standalone comment blocks so
+                // source rows do not occupy layout space in display mode.
                 val inlay =
                     editor.inlayModel.addBlockElement(
-                        endOffset,
+                        collapseEndOffset,
                         true,
-                        false,
+                        true,
                         0,
                         MarkdownCommentRenderer(
                             markdown = markdown,
@@ -100,15 +118,15 @@ object MarkdownCommentPresentationManager {
                 val foldRegion =
                     when (val foldingModel = editor.foldingModel) {
                         is FoldingModelEx ->
-                            foldingModel.createFoldRegion(startOffset, endOffset, " ", null, true)
+                            foldingModel.createFoldRegion(startOffset, collapseEndOffset, "", null, true)
                         else ->
-                            foldingModel.addFoldRegion(startOffset, endOffset, " ")
+                            foldingModel.addFoldRegion(startOffset, collapseEndOffset, "")
                     }
                 if (foldRegion == null) {
                     val concealHighlighter =
                         editor.markupModel.addRangeHighlighter(
                             startOffset,
-                            endOffset,
+                            collapseEndOffset,
                             HighlighterLayer.ADDITIONAL_SYNTAX,
                             concealedCommentTextAttributes(editor),
                             HighlighterTargetArea.EXACT_RANGE,
@@ -268,6 +286,25 @@ object MarkdownCommentPresentationManager {
         next: PsiComment,
     ): Boolean {
         if (!isSingleLineComment(editor, previous) || !isSingleLineComment(editor, next)) return false
+        val documentText = editor.document.charsSequence
+        if (
+            !MarkdownDisplayModeLayout.isDisplayEligible(
+                documentText,
+                previous.textRange.startOffset,
+                previous.textRange.endOffset,
+            )
+        ) {
+            return false
+        }
+        if (
+            !MarkdownDisplayModeLayout.isDisplayEligible(
+                documentText,
+                next.textRange.startOffset,
+                next.textRange.endOffset,
+            )
+        ) {
+            return false
+        }
 
         val previousEndLine = editor.document.getLineNumber(previous.textRange.endOffset - 1)
         val nextStartLine = editor.document.getLineNumber(next.textRange.startOffset)
