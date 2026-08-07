@@ -36,6 +36,16 @@ class MarkdownDisplayModeLayoutTest {
     }
 
     @Test
+    fun `collapse starts at line indentation for standalone comment`() {
+        val text = "  // note\nnext()"
+        val start = text.indexOf("//")
+        val end = text.indexOf('\n')
+
+        val collapseStart = MarkdownDisplayModeLayout.collapseStartOffset(text, start, end)
+        assertEquals(0, collapseStart)
+    }
+
+    @Test
     fun `collapse keeps end offset for inline trailing comment`() {
         val text = "val x = 1 // note\nnext()"
         val start = text.indexOf("//")
@@ -43,5 +53,15 @@ class MarkdownDisplayModeLayoutTest {
 
         val collapseEnd = MarkdownDisplayModeLayout.collapseEndOffset(text, start, end)
         assertEquals(end, collapseEnd)
+    }
+
+    @Test
+    fun `collapse start keeps inline trailing comment offset`() {
+        val text = "val x = 1 // note\nnext()"
+        val start = text.indexOf("//")
+        val end = text.indexOf('\n')
+
+        val collapseStart = MarkdownDisplayModeLayout.collapseStartOffset(text, start, end)
+        assertEquals(start, collapseStart)
     }
 }

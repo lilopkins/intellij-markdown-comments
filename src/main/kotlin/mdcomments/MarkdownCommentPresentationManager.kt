@@ -1,14 +1,15 @@
 package uk.hpkns.mdcomments
 
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.FoldRegion
 import com.intellij.openapi.editor.Inlay
+import com.intellij.openapi.editor.event.CaretEvent
+import com.intellij.openapi.editor.event.CaretListener
+import com.intellij.openapi.editor.event.EditorMouseEvent
+import com.intellij.openapi.editor.event.EditorMouseListener
 import com.intellij.openapi.editor.ex.FoldingModelEx
-import com.intellij.openapi.editor.markup.GutterIconRenderer
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
@@ -16,23 +17,18 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectLocator
-import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.Key
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.util.PsiTreeUtil
-import javax.swing.Icon
 
 object MarkdownCommentPresentationManager {
     private val inlaysKey = Key.create<MutableList<Inlay<*>>>("markdown.comments.inlays")
     private val foldsKey = Key.create<MutableList<FoldRegion>>("markdown.comments.folds")
-    private val gutterKey = Key.create<MutableList<RangeHighlighter>>("markdown.comments.gutters")
+    private val presentationsKey = Key.create<MutableList<CommentPresentation>>("markdown.comments.presentations")
+    private val blocksKey = Key.create<MutableList<CommentBlock>>("markdown.comments.blocks")
     private val concealedRawKey = Key.create<MutableList<RangeHighlighter>>("markdown.comments.concealed.raw")
-
-    // Tracks which comment startOffsets are in display mode. null = initial load (all display).
-    private val displayModeOffsetsKey = Key.create<MutableSet<Int>>("markdown.comments.display.offsets")
-    private val toggleIcon: Icon =
-        IconLoader.getIcon("/icons/comment-toggle.svg", MarkdownCommentPresentationManager::class.java)
+    private val editModeOffsetKey = Key.create<Int>("markdown.comments.edit.offset")
 
     /** Rebuilds rendered Markdown comment presentation for a single editor. */
     fun refresh(
@@ -49,51 +45,38 @@ object MarkdownCommentPresentationManager {
 
         val inlays = mutableListOf<Inlay<*>>()
         val folds = mutableListOf<FoldRegion>()
-        val gutters = mutableListOf<RangeHighlighter>()
+        val presentations = mutableListOf<CommentPresentation>()
         val concealedRaw = mutableListOf<RangeHighlighter>()
-
-        // null = initial load → treat all current comments as display mode and seed the set.
-        val existingDisplayOffsets = editor.getUserData(displayModeOffsetsKey)
-        val isInitialLoad = existingDisplayOffsets == null
-        val displayModeOffsets = existingDisplayOffsets ?: mutableSetOf()
-
         val comments = PsiTreeUtil.findChildrenOfType(psiFile, PsiComment::class.java).toList()
-        val commentBlocks = buildCommentBlocks(editor, comments)
+        val blocks = buildCommentBlocks(editor, comments)
+        editor.putUserData(blocksKey, blocks.toMutableList())
+
         val documentText = editor.document.charsSequence
+        val activeEditOffset = editor.getUserData(editModeOffsetKey)
+        var activeEditStillExists = false
         editor.foldingModel.runBatchFoldingOperation {
-            for ((startOffset, endOffset, markdown, startLine, indentColumns) in commentBlocks) {
+            for ((startOffset, endOffset, markdown, startLine, indentColumns) in blocks) {
                 val displayEligible =
                     MarkdownDisplayModeLayout.isDisplayEligible(
                         documentText = documentText,
                         startOffset = startOffset,
                         endOffset = endOffset,
                     )
-                if (!displayEligible) {
-                    displayModeOffsets -= startOffset
+                val inEditMode = activeEditOffset == startOffset
+                if (inEditMode) {
+                    activeEditStillExists = true
                     continue
                 }
-
-                // On initial load every comment is registered as display-mode.
-                // On subsequent refreshes, only known offsets are display; new offsets → raw.
-                val inDisplayMode = isInitialLoad || displayModeOffsets.contains(startOffset)
-                if (isInitialLoad) displayModeOffsets += startOffset
-                val inRawMode = !inDisplayMode
-
-                val line = editor.document.getLineNumber(startOffset)
-                val gutter = editor.markupModel.addLineHighlighter(line, HighlighterLayer.ADDITIONAL_SYNTAX, null)
-                gutter.gutterIconRenderer =
-                    CommentModeToggleGutterIconRenderer(
-                        editor = editor,
-                        project = project,
-                        commentStartOffset = startOffset,
-                        inRawMode = inRawMode,
-                    )
-                gutters += gutter
-
-                if (inRawMode) continue
+                if (!displayEligible) continue
 
                 val collapseEndOffset =
                     MarkdownDisplayModeLayout.collapseEndOffset(
+                        documentText = documentText,
+                        startOffset = startOffset,
+                        endOffset = endOffset,
+                    )
+                val collapseStartOffset =
+                    MarkdownDisplayModeLayout.collapseStartOffset(
                         documentText = documentText,
                         startOffset = startOffset,
                         endOffset = endOffset,
@@ -118,9 +101,9 @@ object MarkdownCommentPresentationManager {
                 val foldRegion =
                     when (val foldingModel = editor.foldingModel) {
                         is FoldingModelEx ->
-                            foldingModel.createFoldRegion(startOffset, collapseEndOffset, "", null, true)
+                            foldingModel.createFoldRegion(collapseStartOffset, collapseEndOffset, "", null, true)
                         else ->
-                            foldingModel.addFoldRegion(startOffset, collapseEndOffset, "")
+                            foldingModel.addFoldRegion(collapseStartOffset, collapseEndOffset, "")
                     }
                 if (foldRegion == null) {
                     val concealHighlighter =
@@ -137,14 +120,17 @@ object MarkdownCommentPresentationManager {
                     folds += foldRegion
                 }
                 inlays += inlay
+                presentations += CommentPresentation(startOffset, endOffset, inlay)
             }
         }
 
-        editor.putUserData(displayModeOffsetsKey, displayModeOffsets)
+        if (activeEditOffset != null && !activeEditStillExists) {
+            editor.putUserData(editModeOffsetKey, null)
+        }
 
         editor.putUserData(inlaysKey, inlays)
         editor.putUserData(foldsKey, folds)
-        editor.putUserData(gutterKey, gutters)
+        editor.putUserData(presentationsKey, presentations)
         editor.putUserData(concealedRawKey, concealedRaw)
     }
 
@@ -165,10 +151,8 @@ object MarkdownCommentPresentationManager {
         }
         editor.putUserData(foldsKey, null)
 
-        editor.getUserData(gutterKey)?.forEach { highlighter ->
-            editor.markupModel.removeHighlighter(highlighter)
-        }
-        editor.putUserData(gutterKey, null)
+        editor.putUserData(presentationsKey, null)
+        editor.putUserData(blocksKey, null)
 
         editor.getUserData(concealedRawKey)?.forEach { highlighter ->
             editor.markupModel.removeHighlighter(highlighter)
@@ -183,24 +167,6 @@ object MarkdownCommentPresentationManager {
             val editorProject = editor.project ?: findProject(editor) ?: continue
             if (project != null && project != editorProject) continue
             refresh(editor, editorProject)
-        }
-    }
-
-    /** Sets one comment to raw-text or rendered-preview mode. */
-    fun setRawMode(
-        editor: Editor,
-        commentStartOffset: Int,
-        rawMode: Boolean,
-    ) {
-        val displayOffsets =
-            editor.getUserData(displayModeOffsetsKey)
-                ?: mutableSetOf<Int>().also {
-                    editor.putUserData(displayModeOffsetsKey, it)
-                }
-        if (rawMode) {
-            displayOffsets -= commentStartOffset
-        } else {
-            displayOffsets += commentStartOffset
         }
     }
 
@@ -354,6 +320,53 @@ object MarkdownCommentPresentationManager {
         return TextAttributes(background, background, null, null, 0)
     }
 
+    internal fun installPresentationListeners(
+        editor: Editor,
+        project: Project,
+        disposable: com.intellij.openapi.Disposable,
+    ) {
+        editor.addEditorMouseListener(
+            object : EditorMouseListener {
+                override fun mouseClicked(event: EditorMouseEvent) {
+                    val point = event.mouseEvent.point
+                    val presentation =
+                        editor
+                            .getUserData(presentationsKey)
+                            ?.firstOrNull { it.inlay.bounds?.contains(point) == true }
+                            ?: return
+                    editor.putUserData(editModeOffsetKey, presentation.startOffset)
+                    editor.caretModel.moveToOffset(presentation.startOffset)
+                    refresh(editor, project)
+                }
+            },
+            disposable,
+        )
+
+        editor.caretModel.addCaretListener(
+            object : CaretListener {
+                override fun caretPositionChanged(event: CaretEvent) {
+                    val activeEditOffset = editor.getUserData(editModeOffsetKey) ?: return
+                    val activeBlock =
+                        editor
+                            .getUserData(blocksKey)
+                            ?.firstOrNull { it.startOffset == activeEditOffset }
+                            ?: run {
+                                editor.putUserData(editModeOffsetKey, null)
+                                refresh(editor, project)
+                                return
+                            }
+
+                    val caretOffset = event.caret.offset
+                    if (caretOffset in activeBlock.startOffset until activeBlock.endOffset) return
+
+                    editor.putUserData(editModeOffsetKey, null)
+                    refresh(editor, project)
+                }
+            },
+            disposable,
+        )
+    }
+
     private data class CommentBlock(
         val startOffset: Int,
         val endOffset: Int,
@@ -362,37 +375,9 @@ object MarkdownCommentPresentationManager {
         val indentColumns: Int,
     )
 
-    private class CommentModeToggleGutterIconRenderer(
-        private val editor: Editor,
-        private val project: Project,
-        private val commentStartOffset: Int,
-        private val inRawMode: Boolean,
-    ) : GutterIconRenderer() {
-        override fun getIcon(): Icon = toggleIcon
-
-        override fun isNavigateAction(): Boolean = true
-
-        override fun getTooltipText(): String =
-            if (inRawMode) {
-                "Switch comment to Markdown preview mode"
-            } else {
-                "Switch comment to raw text mode"
-            }
-
-        override fun getClickAction(): AnAction =
-            object : AnAction() {
-                override fun actionPerformed(event: AnActionEvent) {
-                    setRawMode(editor, commentStartOffset, rawMode = !inRawMode)
-                    refresh(editor, project)
-                }
-            }
-
-        override fun equals(other: Any?): Boolean =
-            other is CommentModeToggleGutterIconRenderer &&
-                other.editor == editor &&
-                other.commentStartOffset == commentStartOffset &&
-                other.inRawMode == inRawMode
-
-        override fun hashCode(): Int = 31 * commentStartOffset + inRawMode.hashCode()
-    }
+    private data class CommentPresentation(
+        val startOffset: Int,
+        val endOffset: Int,
+        val inlay: Inlay<*>,
+    )
 }

@@ -39,6 +39,7 @@ class MarkdownCommentsEditorFactoryListener : EditorFactoryListener {
             },
             disposable,
         )
+        MarkdownCommentPresentationManager.installPresentationListeners(editor, project, disposable)
 
         editor.putUserData(listenerDisposableKey, disposable)
         scheduleRefresh()

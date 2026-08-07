@@ -1,6 +1,15 @@
 package uk.hpkns.mdcomments
 
 internal object MarkdownDisplayModeLayout {
+    internal fun collapseStartOffset(
+        documentText: CharSequence,
+        startOffset: Int,
+        endOffset: Int,
+    ): Int {
+        if (!isDisplayEligible(documentText, startOffset, endOffset)) return startOffset
+        return lineStartOffset(documentText, startOffset)
+    }
+
     internal fun isDisplayEligible(
         documentText: CharSequence,
         startOffset: Int,
@@ -14,9 +23,7 @@ internal object MarkdownDisplayModeLayout {
         if (containsNonWhitespace(documentText, lineStart, startOffset)) return false
 
         val lineEnd = lineEndOffset(documentText, endOffset)
-        if (containsNonWhitespace(documentText, endOffset, lineEnd)) return false
-
-        return true
+        return !containsNonWhitespace(documentText, endOffset, lineEnd)
     }
 
     internal fun collapseEndOffset(

@@ -10,7 +10,7 @@ An IntelliJ Platform plugin that renders regular code comments as inline markdow
 - Renders fenced code blocks using a monospaced style.
 - Excludes doc comments (`/** ... */`) so native Javadoc/KDoc behavior remains intact.
 - Works from PSI comments, so it applies across IntelliJ-supported languages with comment PSI.
-- Adds a per-comment gutter button to swap that comment between raw text and markdown preview.
+- Lets you click a rendered comment preview to edit the raw comment text, then returns to preview when the caret leaves the comment.
 - Includes a toggle action: **Render Comments as Markdown** in editor context and View menu.
 - Includes **Switch Comments to Display Mode** action (also on main toolbar) to restore preview mode for all comments in the current editor.
 
@@ -21,7 +21,7 @@ The plugin keeps source text unchanged and applies an editor presentation layer:
 - collapses the original comment region;
 - inserts a block inlay at the comment offset;
 - draws a markdown-rendered text view in that inlay.
-- attaches a gutter button so each comment can be toggled back to raw text for editing.
+- lets you click a rendered preview to switch that comment into raw-text edit mode.
 
 ## Development
 
