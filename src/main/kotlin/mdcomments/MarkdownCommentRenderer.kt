@@ -104,7 +104,7 @@ class MarkdownCommentRenderer(
             fontSize += 2
         }
         if (kind == LineKind.QUOTE) {
-            fontStyle = 0 or Font.ITALIC
+            fontStyle = Font.ITALIC
         }
 
         when (style) {

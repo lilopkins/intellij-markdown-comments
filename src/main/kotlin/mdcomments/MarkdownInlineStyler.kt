@@ -23,17 +23,22 @@ internal object MarkdownInlineStyler {
         val segments = mutableListOf<Segment>()
         var index = 0
         for (match in inlineCode.findAll(line)) {
-            val before = line.substring(index, match.range.first)
-            if (before.isNotEmpty()) {
-                segments += parseEmphasis(before, Style.PLAIN)
-            }
+            appendParsedText(segments, line.substring(index, match.range.first), Style.PLAIN)
             segments += Segment(match.groupValues[1], Style.CODE)
             index = match.range.last + 1
         }
-        if (index < line.length) {
-            segments += parseEmphasis(line.substring(index), Style.PLAIN)
-        }
+        appendParsedText(segments, line.substring(index), Style.PLAIN)
         return mergeAdjacent(segments)
+    }
+
+    private fun appendParsedText(
+        segments: MutableList<Segment>,
+        text: String,
+        style: Style,
+    ) {
+        if (text.isNotEmpty()) {
+            segments += parseEmphasis(text, style)
+        }
     }
 
     private fun parseEmphasis(
@@ -61,28 +66,24 @@ internal object MarkdownInlineStyler {
     }
 
     private fun findFirstEmphasis(source: String): EmphasisMatch? {
-        var best: EmphasisMatch? = null
-        for (marker in listOf("**", "__", "*", "_")) {
-            val openAt = source.indexOf(marker)
-            if (openAt < 0) continue
-            val closeAt = source.indexOf(marker, openAt + marker.length)
-            if (closeAt < 0) continue
-            val candidate = EmphasisMatch(openAt, closeAt, marker)
-            if (best == null || candidate.openAt < best.openAt) {
-                best = candidate
-            }
-        }
-        return best
+        return listOf("**", "__", "*", "_")
+            .mapNotNull { marker ->
+                val openAt = source.indexOf(marker)
+                if (openAt < 0) return@mapNotNull null
+                val closeAt = source.indexOf(marker, openAt + marker.length)
+                if (closeAt < 0) return@mapNotNull null
+                EmphasisMatch(openAt, closeAt, marker)
+            }.minByOrNull { it.openAt }
     }
 
     private fun applyStyle(
         current: Style,
         marker: String,
     ): Style {
-        val makeBold = marker == "**" || marker == "__"
-        val makeItalic = marker == "*" || marker == "_"
-        val bold = current == Style.BOLD || current == Style.BOLD_ITALIC || makeBold
-        val italic = current == Style.ITALIC || current == Style.BOLD_ITALIC || makeItalic
+        val boldMarker = marker.length == 2
+        val italicMarker = marker.length == 1
+        val bold = current == Style.BOLD || current == Style.BOLD_ITALIC || boldMarker
+        val italic = current == Style.ITALIC || current == Style.BOLD_ITALIC || italicMarker
         return when {
             bold && italic -> Style.BOLD_ITALIC
             bold -> Style.BOLD

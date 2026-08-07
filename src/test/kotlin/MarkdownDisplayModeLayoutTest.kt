@@ -64,4 +64,14 @@ class MarkdownDisplayModeLayoutTest {
         val collapseStart = MarkdownDisplayModeLayout.collapseStartOffset(text, start, end)
         assertEquals(start, collapseStart)
     }
+
+    @Test
+    fun `collapse includes crlf line separator for standalone comment`() {
+        val text = "  // note\r\nnext()"
+        val start = text.indexOf("//")
+        val end = text.indexOf('\r')
+
+        val collapseEnd = MarkdownDisplayModeLayout.collapseEndOffset(text, start, end)
+        assertEquals(text.indexOf('\n') + 1, collapseEnd)
+    }
 }

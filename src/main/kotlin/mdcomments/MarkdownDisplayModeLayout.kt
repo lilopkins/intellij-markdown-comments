@@ -7,7 +7,7 @@ internal object MarkdownDisplayModeLayout {
         endOffset: Int,
     ): Int {
         if (!isDisplayEligible(documentText, startOffset, endOffset)) return startOffset
-        return lineStartOffset(documentText, startOffset)
+        return lineBounds(documentText, startOffset).start
     }
 
     internal fun isDisplayEligible(
@@ -19,11 +19,11 @@ internal object MarkdownDisplayModeLayout {
         if (startOffset !in 0..documentText.length) return false
         if (endOffset !in 0..documentText.length) return false
 
-        val lineStart = lineStartOffset(documentText, startOffset)
-        if (containsNonWhitespace(documentText, lineStart, startOffset)) return false
+        val startLine = lineBounds(documentText, startOffset)
+        if (containsNonWhitespace(documentText, startLine.start, startOffset)) return false
 
-        val lineEnd = lineEndOffset(documentText, endOffset)
-        return !containsNonWhitespace(documentText, endOffset, lineEnd)
+        val endLine = lineBounds(documentText, endOffset)
+        return !containsNonWhitespace(documentText, endOffset, endLine.end)
     }
 
     internal fun collapseEndOffset(
@@ -33,9 +33,21 @@ internal object MarkdownDisplayModeLayout {
     ): Int {
         if (!isDisplayEligible(documentText, startOffset, endOffset)) return endOffset
 
-        val lineEnd = lineEndOffset(documentText, endOffset)
-        val afterLineEnd = includeLineSeparator(documentText, lineEnd)
+        val afterLineEnd = includeLineSeparator(documentText, lineBounds(documentText, endOffset).end)
         return afterLineEnd.coerceIn(endOffset, documentText.length)
+    }
+
+    private data class LineBounds(
+        val start: Int,
+        val end: Int,
+    )
+
+    private fun lineBounds(
+        text: CharSequence,
+        offset: Int,
+    ): LineBounds {
+        val start = lineStartOffset(text, offset)
+        return LineBounds(start, lineEndOffset(text, offset))
     }
 
     private fun lineStartOffset(

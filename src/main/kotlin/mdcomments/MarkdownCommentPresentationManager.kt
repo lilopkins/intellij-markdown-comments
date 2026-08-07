@@ -55,72 +55,23 @@ object MarkdownCommentPresentationManager {
         val activeEditOffset = editor.getUserData(editModeOffsetKey)
         var activeEditStillExists = false
         editor.foldingModel.runBatchFoldingOperation {
-            for ((startOffset, endOffset, markdown, startLine, indentColumns) in blocks) {
-                val displayEligible =
-                    MarkdownDisplayModeLayout.isDisplayEligible(
-                        documentText = documentText,
-                        startOffset = startOffset,
-                        endOffset = endOffset,
-                    )
-                val inEditMode = activeEditOffset == startOffset
-                if (inEditMode) {
+            for (block in blocks) {
+                val displayEligible = isDisplayEligible(documentText, block)
+                if (!displayEligible) continue
+                if (activeEditOffset == block.startOffset) {
                     activeEditStillExists = true
                     continue
                 }
-                if (!displayEligible) continue
 
-                val collapseEndOffset =
-                    MarkdownDisplayModeLayout.collapseEndOffset(
-                        documentText = documentText,
-                        startOffset = startOffset,
-                        endOffset = endOffset,
-                    )
-                val collapseStartOffset =
-                    MarkdownDisplayModeLayout.collapseStartOffset(
-                        documentText = documentText,
-                        startOffset = startOffset,
-                        endOffset = endOffset,
-                    )
-
-                // Collapse may include trailing spaces/newline for standalone comment blocks so
-                // source rows do not occupy layout space in display mode.
-                val inlay =
-                    editor.inlayModel.addBlockElement(
-                        collapseEndOffset,
-                        true,
-                        true,
-                        0,
-                        MarkdownCommentRenderer(
-                            markdown = markdown,
-                            indentLine = startLine,
-                            indentColumns = indentColumns,
-                        ),
-                    )
-                if (inlay == null) continue
-
-                val foldRegion =
-                    when (val foldingModel = editor.foldingModel) {
-                        is FoldingModelEx ->
-                            foldingModel.createFoldRegion(collapseStartOffset, collapseEndOffset, "", null, true)
-                        else ->
-                            foldingModel.addFoldRegion(collapseStartOffset, collapseEndOffset, "")
-                    }
-                if (foldRegion == null) {
-                    val concealHighlighter =
-                        editor.markupModel.addRangeHighlighter(
-                            startOffset,
-                            collapseEndOffset,
-                            HighlighterLayer.ADDITIONAL_SYNTAX,
-                            concealedCommentTextAttributes(editor),
-                            HighlighterTargetArea.EXACT_RANGE,
-                        )
-                    concealedRaw += concealHighlighter
-                } else {
-                    foldRegion.isExpanded = false
-                    folds += foldRegion
-                }
-                inlays += inlay
-                presentations += CommentPresentation(startOffset, endOffset, inlay)
+                renderBlock(
+                    editor = editor,
+                    block = block,
+                    documentText = documentText,
+                    inlays = inlays,
+                    folds = folds,
+                    presentations = presentations,
+                    concealedRaw = concealedRaw,
+                )
             }
         }
 
@@ -136,28 +87,7 @@ object MarkdownCommentPresentationManager {
 
     /** Removes all Markdown inlays and fold regions previously managed by this plugin. */
     fun clear(editor: Editor) {
-        editor.getUserData(inlaysKey)?.forEach { it.dispose() }
-        editor.putUserData(inlaysKey, null)
-
-        val foldRegions = editor.getUserData(foldsKey).orEmpty()
-        if (foldRegions.isNotEmpty()) {
-            editor.foldingModel.runBatchFoldingOperation {
-                foldRegions.forEach { region ->
-                    if (region.isValid) {
-                        editor.foldingModel.removeFoldRegion(region)
-                    }
-                }
-            }
-        }
-        editor.putUserData(foldsKey, null)
-
-        editor.putUserData(presentationsKey, null)
-        editor.putUserData(blocksKey, null)
-
-        editor.getUserData(concealedRawKey)?.forEach { highlighter ->
-            editor.markupModel.removeHighlighter(highlighter)
-        }
-        editor.putUserData(concealedRawKey, null)
+        clearManagedPresentation(editor)
     }
 
     /** Refreshes all open editors, optionally restricted to one project. */
@@ -245,6 +175,82 @@ object MarkdownCommentPresentationManager {
         )
     }
 
+    private fun isDisplayEligible(
+        documentText: CharSequence,
+        block: CommentBlock,
+    ): Boolean =
+        MarkdownDisplayModeLayout.isDisplayEligible(
+            documentText = documentText,
+            startOffset = block.startOffset,
+            endOffset = block.endOffset,
+        )
+
+    private fun renderBlock(
+        editor: Editor,
+        block: CommentBlock,
+        documentText: CharSequence,
+        inlays: MutableList<Inlay<*>>,
+        folds: MutableList<FoldRegion>,
+        presentations: MutableList<CommentPresentation>,
+        concealedRaw: MutableList<RangeHighlighter>,
+    ) {
+        val collapseEndOffset =
+            MarkdownDisplayModeLayout.collapseEndOffset(
+                documentText = documentText,
+                startOffset = block.startOffset,
+                endOffset = block.endOffset,
+            )
+        val collapseStartOffset =
+            MarkdownDisplayModeLayout.collapseStartOffset(
+                documentText = documentText,
+                startOffset = block.startOffset,
+                endOffset = block.endOffset,
+            )
+
+        // Collapse may include trailing spaces/newline for standalone comment blocks so
+        // source rows do not occupy layout space in display mode.
+        val inlay =
+            editor.inlayModel.addBlockElement(
+                collapseEndOffset,
+                true,
+                true,
+                0,
+                MarkdownCommentRenderer(
+                    markdown = block.markdown,
+                    indentLine = block.startLine,
+                    indentColumns = block.indentColumns,
+                ),
+            ) ?: return
+
+        val foldRegion = createFoldRegion(editor, collapseStartOffset, collapseEndOffset)
+        if (foldRegion == null) {
+            concealedRaw +=
+                editor.markupModel.addRangeHighlighter(
+                    block.startOffset,
+                    collapseEndOffset,
+                    HighlighterLayer.ADDITIONAL_SYNTAX,
+                    concealedCommentTextAttributes(editor),
+                    HighlighterTargetArea.EXACT_RANGE,
+                )
+        } else {
+            foldRegion.isExpanded = false
+            folds += foldRegion
+        }
+
+        inlays += inlay
+        presentations += CommentPresentation(block.startOffset, block.endOffset, inlay)
+    }
+
+    private fun createFoldRegion(
+        editor: Editor,
+        startOffset: Int,
+        endOffset: Int,
+    ): FoldRegion? =
+        when (val foldingModel = editor.foldingModel) {
+            is FoldingModelEx -> foldingModel.createFoldRegion(startOffset, endOffset, "", null, true)
+            else -> foldingModel.addFoldRegion(startOffset, endOffset, "")
+        }
+
     /** Returns true when two comments form adjacent single-line comment rows in source. */
     private fun shouldGroupAdjacentSingleLineComments(
         editor: Editor,
@@ -318,6 +324,31 @@ object MarkdownCommentPresentationManager {
     private fun concealedCommentTextAttributes(editor: Editor): TextAttributes {
         val background = editor.colorsScheme.defaultBackground
         return TextAttributes(background, background, null, null, 0)
+    }
+
+    private fun clearManagedPresentation(editor: Editor) {
+        editor.getUserData(inlaysKey)?.forEach { it.dispose() }
+        editor.putUserData(inlaysKey, null)
+
+        val foldRegions = editor.getUserData(foldsKey).orEmpty()
+        if (foldRegions.isNotEmpty()) {
+            editor.foldingModel.runBatchFoldingOperation {
+                foldRegions.forEach { region ->
+                    if (region.isValid) {
+                        editor.foldingModel.removeFoldRegion(region)
+                    }
+                }
+            }
+        }
+        editor.putUserData(foldsKey, null)
+
+        editor.putUserData(presentationsKey, null)
+        editor.putUserData(blocksKey, null)
+
+        editor.getUserData(concealedRawKey)?.forEach { highlighter ->
+            editor.markupModel.removeHighlighter(highlighter)
+        }
+        editor.putUserData(concealedRawKey, null)
     }
 
     internal fun installPresentationListeners(
